@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { fetchQiitaItems, QiitaItem, RateLimitInfo, buildQuery } from '@/utils/qiita'
 
 const ORG = import.meta.env.VITE_QIITA_ORG_ID as string | undefined
-const PER_PAGE = Number(import.meta.env.VITE_PER_PAGE ?? 20)
+const DEFAULT_PER_PAGE = Number(import.meta.env.VITE_PER_PAGE ?? 20)
 
 export function App() {
 	const [q, setQ] = useState<string>('')
 	const [page, setPage] = useState<number>(1)
+	const [perPage, setPerPage] = useState<number>(Number.isFinite(DEFAULT_PER_PAGE) ? DEFAULT_PER_PAGE : 20)
 	const [items, setItems] = useState<QiitaItem[]>([])
 	const [isLoading, setIsLoading] = useState<boolean>(false)
 	const [error, setError] = useState<string | null>(null)
@@ -26,14 +27,14 @@ export function App() {
 		fetchQiitaItems({
 			query: effectiveQuery,
 			page,
-			perPage: PER_PAGE
+			perPage
 		}).then(res => {
 			setItems(res.items)
 			setRate(res.rate)
 		}).catch(err => {
 			setError(err instanceof Error ? err.message : String(err))
 		}).finally(() => setIsLoading(false))
-	}, [effectiveQuery, page])
+	}, [effectiveQuery, page, perPage])
 
 	const onSubmit: React.FormEventHandler<HTMLFormElement> = (e) => {
 		e.preventDefault()
@@ -64,6 +65,27 @@ export function App() {
 				{isLoading && <div>読み込み中...</div>}
 				{!isLoading && !error && (
 					<>
+						<div className="meta" style={{ marginBottom: 8, justifyContent: 'space-between' }}>
+							<span>1ページあたり {perPage}件</span>
+							<label>
+								件数:
+								<select
+									className="input"
+									style={{ width: 96, marginLeft: 6, padding: '6px 8px' }}
+									value={perPage}
+									onChange={(e) => {
+										const v = Math.max(1, Math.min(100, Number(e.target.value) || 20))
+										setPerPage(v)
+										setPage(1)
+									}}
+								>
+									<option value={10}>10</option>
+									<option value={20}>20</option>
+									<option value={50}>50</option>
+									<option value={100}>100</option>
+								</select>
+							</label>
+						</div>
 						<div className="list">
 							{items.map(it => (
 								<article key={it.id} className="item">
@@ -86,7 +108,7 @@ export function App() {
 						<div className="pagination">
 							<button className="pager" disabled={page <= 1 || isLoading} onClick={() => setPage(p => Math.max(1, p - 1))}>前へ</button>
 							<span className="badge">Page {page}</span>
-							<button className="pager" disabled={isLoading || items.length < PER_PAGE} onClick={() => setPage(p => p + 1)}>次へ</button>
+							<button className="pager" disabled={isLoading || items.length < perPage} onClick={() => setPage(p => p + 1)}>次へ</button>
 						</div>
 					</>
 				)}
