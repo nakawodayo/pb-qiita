@@ -4,7 +4,7 @@ export default async function handler(
 	req: VercelRequest,
 	res: VercelResponse
 ) {
-	// パスを取得（/api/qiita/items -> /api/v2/items）
+	// パスを取得（/api/qiita/items -> items）
 	const path = Array.isArray(req.query.path)
 		? req.query.path.join('/')
 		: req.query.path || ''
@@ -23,6 +23,11 @@ export default async function handler(
 		? `${targetUrl}?${queryString}`
 		: targetUrl
 
+	console.log('[Proxy] Request:', req.method, req.url)
+	console.log('[Proxy] Path:', path)
+	console.log('[Proxy] Query params:', queryParams)
+	console.log('[Proxy] Target URL:', url)
+
 	// ヘッダーを準備
 	const headers: Record<string, string> = {
 		'Accept': 'application/json',
@@ -35,6 +40,16 @@ export default async function handler(
 		headers['Authorization'] = `Bearer ${token}`
 	}
 
+	// CORSヘッダーを追加
+	res.setHeader('Access-Control-Allow-Origin', '*')
+	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+	res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+	// OPTIONSリクエストの処理
+	if (req.method === 'OPTIONS') {
+		return res.status(200).end()
+	}
+
 	try {
 		const response = await fetch(url, {
 			method: req.method,
@@ -43,6 +58,8 @@ export default async function handler(
 				? JSON.stringify(req.body)
 				: undefined
 		})
+
+		console.log('[Proxy] Response status:', response.status)
 
 		// レスポンスヘッダーをコピー
 		const rateLimit = response.headers.get('Rate-Limit')
@@ -53,20 +70,20 @@ export default async function handler(
 		if (rateRemaining) res.setHeader('Rate-Remaining', rateRemaining)
 		if (rateReset) res.setHeader('Rate-Reset', rateReset)
 
-		// CORSヘッダーを追加
-		res.setHeader('Access-Control-Allow-Origin', '*')
-		res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-		res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-		// OPTIONSリクエストの処理
-		if (req.method === 'OPTIONS') {
-			return res.status(200).end()
+		if (!response.ok) {
+			const errorText = await response.text()
+			console.error('[Proxy] API error:', response.status, errorText)
+			return res.status(response.status).json({
+				error: 'Qiita API error',
+				status: response.status,
+				message: errorText
+			})
 		}
 
 		const data = await response.json()
 		res.status(response.status).json(data)
 	} catch (error) {
-		console.error('Proxy error:', error)
+		console.error('[Proxy] Fetch error:', error)
 		res.status(500).json({
 			error: 'Proxy error',
 			message: error instanceof Error ? error.message : String(error)
