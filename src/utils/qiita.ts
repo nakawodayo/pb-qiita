@@ -29,25 +29,44 @@ export function buildQuery(params: { org: string; raw: string }): string {
 	return `${base} ${tokens}`
 }
 
-const API_BASE = 'https://qiita.com/api/v2'
+// 開発環境ではViteのプロキシを使用、本番環境では直接APIを呼び出す（または本番プロキシを使用）
+const API_BASE = import.meta.env.DEV
+	? '/api/qiita'
+	: 'https://qiita.com/api/v2'
 const TOKEN = import.meta.env.VITE_QIITA_ACCESS_TOKEN as string | undefined
 
 export async function fetchQiitaItems(input: { query: string; page: number; perPage: number }): Promise<{ items: QiitaItem[]; rate: RateLimitInfo | null }> {
-	const url = new URL(`${API_BASE}/items`)
+	const url = new URL(`${API_BASE}/items`, import.meta.env.DEV ? window.location.origin : undefined)
 	url.searchParams.set('page', String(input.page))
 	url.searchParams.set('per_page', String(input.perPage))
 	url.searchParams.set('query', input.query)
 
 	const headers: Record<string, string> = { 'Accept': 'application/json' }
-	if (TOKEN) {
+	// 開発環境ではプロキシがトークンを追加するため、クライアント側では不要
+	// 本番環境で直接APIを呼び出す場合は必要
+	if (TOKEN && !import.meta.env.DEV) {
 		headers['Authorization'] = `Bearer ${TOKEN}`
 	}
 
 	const res = await fetch(url.toString(), { headers })
 	const rate = parseRate(res)
 	if (!res.ok) {
-		const text = await res.text().catch(() => '')
-		throw new Error(`Qiita API error ${res.status}: ${text || res.statusText}`)
+		let errorMessage = `Qiita API error ${res.status}: ${res.statusText}`
+		try {
+			const text = await res.text()
+			if (text) {
+				// JSONエラーレスポンスをパースしてみる
+				try {
+					const json = JSON.parse(text)
+					errorMessage = `Qiita API error ${res.status}: ${json.message || json.error || text}`
+				} catch {
+					errorMessage = `Qiita API error ${res.status}: ${text}`
+				}
+			}
+		} catch {
+			// テキスト取得に失敗した場合は既存のメッセージを使用
+		}
+		throw new Error(errorMessage)
 	}
 	const json = await res.json() as any[]
 	// rendered_body は /items では返らないため、excerpt 代わりに空 or 省略
@@ -62,6 +81,81 @@ export async function fetchQiitaItems(input: { query: string; page: number; perP
 		tags: Array.isArray(j.tags) ? j.tags.map((t: any) => ({ name: t.name })) : []
 	}))
 	return { items, rate }
+}
+
+/**
+ * 期間内の全記事を取得（ページネーション対応）
+ */
+export async function fetchAllItemsInPeriod(input: { org: string; startDate: string; endDate: string }): Promise<{ items: QiitaItem[]; rate: RateLimitInfo | null }> {
+	// Qiita APIの日付範囲クエリは >= と <= を使う
+	const dateQuery = `created:>=${input.startDate} created:<=${input.endDate}`
+	const query = buildQuery({ org: input.org, raw: dateQuery })
+
+	const allItems: QiitaItem[] = []
+	let page = 1
+	const perPage = 100 // 最大値
+	let rate: RateLimitInfo | null = null
+	let hasMore = true
+
+	while (hasMore) {
+		const url = new URL(`${API_BASE}/items`, import.meta.env.DEV ? window.location.origin : undefined)
+		url.searchParams.set('page', String(page))
+		url.searchParams.set('per_page', String(perPage))
+		url.searchParams.set('query', query)
+
+		const headers: Record<string, string> = { 'Accept': 'application/json' }
+		// 開発環境ではプロキシがトークンを追加するため、クライアント側では不要
+		// 本番環境で直接APIを呼び出す場合は必要
+		if (TOKEN && !import.meta.env.DEV) {
+			headers['Authorization'] = `Bearer ${TOKEN}`
+		}
+
+		const res = await fetch(url.toString(), { headers })
+		const currentRate = parseRate(res)
+		if (currentRate) rate = currentRate
+
+		if (!res.ok) {
+			let errorMessage = `Qiita API error ${res.status}: ${res.statusText}`
+			try {
+				const text = await res.text()
+				if (text) {
+					// JSONエラーレスポンスをパースしてみる
+					try {
+						const json = JSON.parse(text)
+						errorMessage = `Qiita API error ${res.status}: ${json.message || json.error || text}`
+					} catch {
+						errorMessage = `Qiita API error ${res.status}: ${text}`
+					}
+				}
+			} catch {
+				// テキスト取得に失敗した場合は既存のメッセージを使用
+			}
+			throw new Error(errorMessage)
+		}
+
+		const json = await res.json() as any[]
+		const items: QiitaItem[] = json.map(j => ({
+			id: j.id,
+			title: j.title,
+			url: j.url,
+			likes_count: j.likes_count ?? 0,
+			created_at: j.created_at,
+			rendered_body: undefined,
+			user: { id: j.user?.id, name: j.user?.name },
+			tags: Array.isArray(j.tags) ? j.tags.map((t: any) => ({ name: t.name })) : []
+		}))
+
+		allItems.push(...items)
+		hasMore = items.length === perPage
+		page++
+
+		// レート制限を考慮して少し待機
+		if (hasMore && rate && rate.remaining < 10) {
+			await new Promise(resolve => setTimeout(resolve, 1000))
+		}
+	}
+
+	return { items: allItems, rate }
 }
 
 function parseRate(res: Response): RateLimitInfo | null {
