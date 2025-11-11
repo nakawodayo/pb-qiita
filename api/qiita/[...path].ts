@@ -5,16 +5,32 @@ export default async function handler(
 	res: VercelResponse
 ) {
 	// パスを取得（/api/qiita/items -> items）
-	const path = Array.isArray(req.query.path)
-		? req.query.path.join('/')
-		: req.query.path || ''
+	// req.urlから直接パスを抽出（最も確実な方法）
+	let path = ''
+	if (req.url) {
+		const urlPath = req.url.split('?')[0]
+		const match = urlPath.match(/^\/api\/qiita\/(.+)$/)
+		if (match) {
+			path = match[1]
+		}
+	}
+
+	// フォールバック: req.query.pathから取得
+	if (!path) {
+		if (Array.isArray(req.query.path)) {
+			path = req.query.path.join('/')
+		} else if (req.query.path) {
+			path = req.query.path
+		}
+	}
 
 	const targetUrl = `https://qiita.com/api/v2/${path}`
 
 	// クエリパラメータを取得（path以外のパラメータ）
 	const queryParams: Record<string, string> = {}
 	for (const [key, value] of Object.entries(req.query)) {
-		if (key !== 'path' && value) {
+		// pathと...pathを除外
+		if (key !== 'path' && key !== '...path' && value) {
 			queryParams[key] = Array.isArray(value) ? value[0] : value
 		}
 	}
@@ -24,6 +40,7 @@ export default async function handler(
 		: targetUrl
 
 	console.log('[Proxy] Request:', req.method, req.url)
+	console.log('[Proxy] Query object:', req.query)
 	console.log('[Proxy] Path:', path)
 	console.log('[Proxy] Query params:', queryParams)
 	console.log('[Proxy] Target URL:', url)
