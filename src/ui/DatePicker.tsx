@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 interface DatePickerProps {
 	value: string
@@ -20,15 +20,15 @@ export function DatePicker({ value, onChange, label, min, max }: DatePickerProps
 	const containerRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
+		if (!isOpen) return
+
 		const handleClickOutside = (event: MouseEvent) => {
 			if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
 				setIsOpen(false)
 			}
 		}
-		if (isOpen) {
-			document.addEventListener('mousedown', handleClickOutside)
-			return () => document.removeEventListener('mousedown', handleClickOutside)
-		}
+		document.addEventListener('mousedown', handleClickOutside)
+		return () => document.removeEventListener('mousedown', handleClickOutside)
 	}, [isOpen])
 
 	const formatDate = (date: Date): string => {
@@ -169,7 +169,7 @@ export function DatePicker({ value, onChange, label, min, max }: DatePickerProps
 									const isCurrentMonth = date.getMonth() === currentMonth.getMonth()
 									const isSelected = selectedDate && formatDate(selectedDate) === dateStr
 									const isToday = formatDate(today) === dateStr
-									const isDisabled = (min && dateStr < min) || (max && dateStr > max)
+									const isDisabled = Boolean((min && dateStr < min) || (max && dateStr > max))
 
 									return (
 										<button

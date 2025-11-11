@@ -29,24 +29,19 @@ export function buildQuery(params: { org: string; raw: string }): string {
 	return `${base} ${tokens}`
 }
 
-// 開発環境ではViteのプロキシを使用、本番環境では直接APIを呼び出す（または本番プロキシを使用）
-const API_BASE = import.meta.env.DEV
-	? '/api/qiita'
-	: 'https://qiita.com/api/v2'
-const TOKEN = import.meta.env.VITE_QIITA_ACCESS_TOKEN as string | undefined
+// 開発環境ではViteのプロキシを使用、本番環境ではVercelのServerless Functionsを使用
+// Vercelでは/api/qiitaがServerless Functionsにルーティングされる
+const API_BASE = '/api/qiita'
 
 export async function fetchQiitaItems(input: { query: string; page: number; perPage: number }): Promise<{ items: QiitaItem[]; rate: RateLimitInfo | null }> {
-	const url = new URL(`${API_BASE}/items`, import.meta.env.DEV ? window.location.origin : undefined)
+	const url = new URL(`${API_BASE}/items`, window.location.origin)
 	url.searchParams.set('page', String(input.page))
 	url.searchParams.set('per_page', String(input.perPage))
 	url.searchParams.set('query', input.query)
 
 	const headers: Record<string, string> = { 'Accept': 'application/json' }
-	// 開発環境ではプロキシがトークンを追加するため、クライアント側では不要
-	// 本番環境で直接APIを呼び出す場合は必要
-	if (TOKEN && !import.meta.env.DEV) {
-		headers['Authorization'] = `Bearer ${TOKEN}`
-	}
+	// プロキシ（Vite開発サーバーまたはVercel Serverless Functions）がトークンを追加するため、
+	// クライアント側ではトークンを送信しない（セキュリティのため）
 
 	const res = await fetch(url.toString(), { headers })
 	const rate = parseRate(res)
@@ -98,17 +93,14 @@ export async function fetchAllItemsInPeriod(input: { org: string; startDate: str
 	let hasMore = true
 
 	while (hasMore) {
-		const url = new URL(`${API_BASE}/items`, import.meta.env.DEV ? window.location.origin : undefined)
+		const url = new URL(`${API_BASE}/items`, window.location.origin)
 		url.searchParams.set('page', String(page))
 		url.searchParams.set('per_page', String(perPage))
 		url.searchParams.set('query', query)
 
 		const headers: Record<string, string> = { 'Accept': 'application/json' }
-		// 開発環境ではプロキシがトークンを追加するため、クライアント側では不要
-		// 本番環境で直接APIを呼び出す場合は必要
-		if (TOKEN && !import.meta.env.DEV) {
-			headers['Authorization'] = `Bearer ${TOKEN}`
-		}
+		// プロキシ（Vite開発サーバーまたはVercel Serverless Functions）がトークンを追加するため、
+		// クライアント側ではトークンを送信しない（セキュリティのため）
 
 		const res = await fetch(url.toString(), { headers })
 		const currentRate = parseRate(res)
