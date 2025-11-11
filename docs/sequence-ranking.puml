@@ -1,0 +1,74 @@
+@startuml 期間別ランキング取得シーケンス図
+
+actor ユーザー
+participant "App.tsx" as App
+participant "DatePicker.tsx" as DatePicker
+participant "qiita.ts" as Utils
+participant "プロキシ\n(Vercel/Express)" as Proxy
+participant "Qiita API" as API
+
+== 期間別ランキング取得 ==
+
+ユーザー -> DatePicker: 開始日を選択
+DatePicker -> App: onChange(rankingStartDate)
+activate App
+
+ユーザー -> DatePicker: 終了日を選択
+DatePicker -> App: onChange(rankingEndDate)
+
+ユーザー -> App: 「ランキング取得」ボタンクリック
+App -> App: fetchRanking()実行
+
+App -> App: バリデーション\n(ORG, 日付の存在確認)
+
+App -> Utils: fetchAllItemsInPeriod({org, startDate, endDate})
+activate Utils
+
+Utils -> Utils: buildQuery()で\nクエリ構築\norg:{org} created:>={startDate} created:<={endDate}
+
+Utils -> Utils: ページネーションループ開始\n(page = 1, perPage = 100)
+
+loop 全ページ取得
+  Utils -> Utils: URL構築\n/api/qiita/items?page={page}&per_page=100&query=...
+
+  Utils -> Proxy: GET /api/qiita/items
+  activate Proxy
+
+  Proxy -> Proxy: 環境変数から\nQIITA_ACCESS_TOKEN取得
+  Proxy -> Proxy: Authorizationヘッダー追加
+
+  Proxy -> API: GET /api/v2/items\nAuthorization: Bearer {token}
+  activate API
+
+  API -> Proxy: 200 OK\n記事データ + Rate-Limitヘッダー
+  deactivate API
+
+  Proxy -> Utils: 200 OK\n記事データ + Rate-Limitヘッダー
+  deactivate Proxy
+
+  Utils -> Utils: parseRate()で\nRateLimitInfoを抽出
+  Utils -> Utils: JSONをQiitaItem[]に変換
+  Utils -> Utils: allItemsに追加
+
+  alt レート制限チェック
+    Utils -> Utils: rate.remaining < 10 の場合\n1秒待機
+  end
+
+  Utils -> Utils: items.length < perPage なら\nhasMore = false
+  Utils -> Utils: page++
+end
+
+Utils -> App: {items: allItems, rate}
+deactivate Utils
+
+App -> App: rankingItems状態を更新
+App -> App: showRanking = true
+
+App -> App: likesRanking計算\n(いいね数で降順ソート、上位20件)
+
+App -> App: postsRanking計算\n(ユーザー別投稿数集計、降順ソート、上位20件)
+
+App -> ユーザー: ランキング表示\n(いいね数ランキング + 投稿数ランキング)
+deactivate App
+
+@enduml

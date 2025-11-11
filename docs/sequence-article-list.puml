@@ -1,0 +1,60 @@
+@startuml 記事一覧取得シーケンス図
+
+actor ユーザー
+participant "App.tsx" as App
+participant "qiita.ts" as Utils
+participant "プロキシ\n(Vercel/Express)" as Proxy
+participant "Qiita API" as API
+
+== 記事一覧取得 ==
+
+ユーザー -> App: ページ読み込み / 検索実行
+activate App
+
+App -> App: effectiveQueryを計算\n(buildQuery使用)
+
+App -> Utils: fetchQiitaItems({query, page, perPage})
+activate Utils
+
+Utils -> Utils: API_BASE = '/api/qiita'
+Utils -> Utils: URL構築\n/api/qiita/items?page=1&per_page=20&query=...
+
+Utils -> Proxy: GET /api/qiita/items\n(Authorizationなし)
+activate Proxy
+
+alt 本番環境 (Vercel)
+  Proxy -> Proxy: 環境変数から\nQIITA_ACCESS_TOKEN取得
+  Proxy -> Proxy: Authorizationヘッダー追加
+else 開発環境 (Express)
+  Proxy -> Proxy: 環境変数から\nQIITA_ACCESS_TOKEN取得
+  Proxy -> Proxy: Authorizationヘッダー追加
+end
+
+Proxy -> API: GET /api/v2/items\nAuthorization: Bearer {token}
+activate API
+
+API -> API: 記事一覧取得
+API -> Proxy: 200 OK\n記事データ + Rate-Limitヘッダー
+deactivate API
+
+Proxy -> Proxy: Rate-Limitヘッダーを\nレスポンスにコピー
+Proxy -> Proxy: CORSヘッダー追加
+Proxy -> Utils: 200 OK\n記事データ + Rate-Limitヘッダー
+deactivate Proxy
+
+Utils -> Utils: parseRate()で\nRateLimitInfoを抽出
+Utils -> Utils: JSONをQiitaItem[]に変換
+
+alt エラー発生
+  Utils -> App: Error例外
+  App -> App: error状態を設定
+else 成功
+  Utils -> App: {items, rate}
+  App -> App: items, rate状態を更新
+end
+
+deactivate Utils
+App -> ユーザー: 記事一覧を表示
+deactivate App
+
+@enduml

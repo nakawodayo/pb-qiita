@@ -1,0 +1,65 @@
+@startuml
+title システムアーキテクチャ図
+
+' 色指定は古いPlantUML互換のため省略（必要ならskinparamで調整）
+
+package "クライアント (ブラウザ)" {
+  [React SPA] as ReactApp
+  [Vite Dev Server] as ViteDev
+}
+
+package "本番環境 (Vercel)" {
+  [Static Assets] as StaticAssets
+  [Serverless Functions] as Serverless
+  [Environment Variables] as EnvVars
+}
+
+package "開発環境" {
+  [Express Proxy Server] as ExpressProxy
+  [Local Environment] as LocalEnv
+}
+
+cloud "Qiita API v2" {
+  [GET /api/v2/items] as QiitaAPI
+  [Rate Limiting] as RateLimit
+}
+
+ReactApp --> ViteDev : 開発時のみ
+ReactApp --> StaticAssets : 本番時
+
+ReactApp --> Serverless : /api/qiita/*
+note right: 本番環境では\nServerless Functions経由
+
+ReactApp --> ExpressProxy : /api/qiita/*
+note right: 開発環境では\nExpress Proxy経由
+
+Serverless --> EnvVars : QIITA_ACCESS_TOKEN
+ExpressProxy --> LocalEnv : QIITA_ACCESS_TOKEN
+
+Serverless --> QiitaAPI : プロキシ
+ExpressProxy --> QiitaAPI : プロキシ
+
+QiitaAPI --> RateLimit : レート制限情報
+
+note top of ReactApp
+  フロントエンド
+  - React + TypeScript
+  - 状態管理: useState
+  - API通信: fetch
+end note
+
+note bottom of Serverless
+  Vercel Serverless Functions
+  - トークン秘匿
+  - CORS対応
+  - レート制限ヘッダー転送
+end note
+
+note bottom of ExpressProxy
+  Express Proxy Server
+  - 開発用プロキシ
+  - トークン秘匿
+  - CORS対応
+end note
+
+@enduml
