@@ -4,17 +4,33 @@ export default async function handler(
 	req: VercelRequest,
 	res: VercelResponse
 ) {
-	// パスを取得（/api/qiita/items -> /api/v2/items）
-	const path = Array.isArray(req.query.path)
-		? req.query.path.join('/')
-		: req.query.path || ''
+	// パスを取得（/api/qiita/items -> items）
+	// req.urlから直接パスを抽出（最も確実な方法）
+	let path = ''
+	if (req.url) {
+		const urlPath = req.url.split('?')[0]
+		const match = urlPath.match(/^\/api\/qiita\/(.+)$/)
+		if (match) {
+			path = match[1]
+		}
+	}
+
+	// フォールバック: req.query.pathから取得
+	if (!path) {
+		if (Array.isArray(req.query.path)) {
+			path = req.query.path.join('/')
+		} else if (req.query.path) {
+			path = req.query.path
+		}
+	}
 
 	const targetUrl = `https://qiita.com/api/v2/${path}`
 
 	// クエリパラメータを取得（path以外のパラメータ）
 	const queryParams: Record<string, string> = {}
 	for (const [key, value] of Object.entries(req.query)) {
-		if (key !== 'path' && value) {
+		// pathと...pathを除外
+		if (key !== 'path' && key !== '...path' && value) {
 			queryParams[key] = Array.isArray(value) ? value[0] : value
 		}
 	}
@@ -22,6 +38,12 @@ export default async function handler(
 	const url = queryString
 		? `${targetUrl}?${queryString}`
 		: targetUrl
+
+	console.log('[Proxy] Request:', req.method, req.url)
+	console.log('[Proxy] Query object:', req.query)
+	console.log('[Proxy] Path:', path)
+	console.log('[Proxy] Query params:', queryParams)
+	console.log('[Proxy] Target URL:', url)
 
 	// ヘッダーを準備
 	const headers: Record<string, string> = {
@@ -35,6 +57,16 @@ export default async function handler(
 		headers['Authorization'] = `Bearer ${token}`
 	}
 
+	// CORSヘッダーを追加
+	res.setHeader('Access-Control-Allow-Origin', '*')
+	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+	res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+	// OPTIONSリクエストの処理
+	if (req.method === 'OPTIONS') {
+		return res.status(200).end()
+	}
+
 	try {
 		const response = await fetch(url, {
 			method: req.method,
@@ -43,6 +75,8 @@ export default async function handler(
 				? JSON.stringify(req.body)
 				: undefined
 		})
+
+		console.log('[Proxy] Response status:', response.status)
 
 		// レスポンスヘッダーをコピー
 		const rateLimit = response.headers.get('Rate-Limit')
@@ -53,20 +87,20 @@ export default async function handler(
 		if (rateRemaining) res.setHeader('Rate-Remaining', rateRemaining)
 		if (rateReset) res.setHeader('Rate-Reset', rateReset)
 
-		// CORSヘッダーを追加
-		res.setHeader('Access-Control-Allow-Origin', '*')
-		res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-		res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-
-		// OPTIONSリクエストの処理
-		if (req.method === 'OPTIONS') {
-			return res.status(200).end()
+		if (!response.ok) {
+			const errorText = await response.text()
+			console.error('[Proxy] API error:', response.status, errorText)
+			return res.status(response.status).json({
+				error: 'Qiita API error',
+				status: response.status,
+				message: errorText
+			})
 		}
 
 		const data = await response.json()
 		res.status(response.status).json(data)
 	} catch (error) {
-		console.error('Proxy error:', error)
+		console.error('[Proxy] Fetch error:', error)
 		res.status(500).json({
 			error: 'Proxy error',
 			message: error instanceof Error ? error.message : String(error)
