@@ -1,0 +1,85 @@
+@startuml コンポーネント図
+
+package "React アプリケーション" {
+  [main.tsx] as Main
+  [App.tsx] as App
+  [DatePicker.tsx] as DatePicker
+  [qiita.ts] as Utils
+  [styles.css] as Styles
+}
+
+package "UI コンポーネント" {
+  component "検索バー" as SearchBar
+  component "記事リスト" as ArticleList
+  component "ページネーション" as Pagination
+  component "ランキングセクション" as RankingSection
+  component "いいね数ランキング" as LikesRanking
+  component "投稿数ランキング" as PostsRanking
+  component "期間プリセットボタン" as PresetButtons
+  component "レート制限表示" as RateDisplay
+}
+
+package "状態管理" {
+  component "検索状態" as SearchState
+  component "ページネーション状態" as PageState
+  component "ランキング状態" as RankingState
+  component "ローディング状態" as LoadingState
+  component "エラー状態" as ErrorState
+}
+
+package "API 通信" {
+  component "記事取得" as FetchItems
+  component "期間別記事取得" as FetchPeriodItems
+  component "クエリ構築" as BuildQuery
+  component "レート制限解析" as ParseRate
+}
+
+Main --> App : renders
+Main --> Styles : imports
+
+App --> SearchBar : contains
+App --> ArticleList : contains
+App --> Pagination : contains
+App --> RankingSection : contains
+App --> RateDisplay : contains
+App --> DatePicker : uses
+
+RankingSection --> DatePicker : uses
+RankingSection --> PresetButtons : contains
+RankingSection --> LikesRanking : contains
+RankingSection --> PostsRanking : contains
+
+App --> SearchState : manages
+App --> PageState : manages
+App --> RankingState : manages
+App --> LoadingState : manages
+App --> ErrorState : manages
+
+App --> Utils : uses
+Utils --> FetchItems : provides
+Utils --> FetchPeriodItems : provides
+Utils --> BuildQuery : provides
+Utils --> ParseRate : provides
+
+note right of App
+  メインコンポーネント
+  - 状態管理
+  - イベントハンドリング
+  - データ取得のトリガー
+end note
+
+note right of DatePicker
+  カスタムカレンダーコンポーネント
+  - 月の移動
+  - 日付選択
+  - バリデーション
+end note
+
+note right of Utils
+  Qiita API通信ユーティリティ
+  - クエリ構築
+  - 記事取得
+  - レート制限処理
+end note
+
+@enduml

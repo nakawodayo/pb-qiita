@@ -1,0 +1,108 @@
+@startuml クラス図
+
+package "フロントエンド (React)" {
+  class App {
+    - q: string
+    - page: number
+    - perPage: number
+    - items: QiitaItem[]
+    - isLoading: boolean
+    - error: string | null
+    - rate: RateLimitInfo | null
+    - rankingStartDate: string
+    - rankingEndDate: string
+    - rankingItems: QiitaItem[]
+    - isLoadingRanking: boolean
+    - rankingError: string | null
+    - showRanking: boolean
+    + onSubmit()
+    + fetchRanking()
+    + likesRanking: QiitaItem[]
+    + postsRanking: {count: number, userId: string}[]
+  }
+
+  class DatePicker {
+    - isOpen: boolean
+    - currentMonth: Date
+    - containerRef: RefObject<HTMLDivElement>
+    + formatDate(date: Date): string
+    + getDaysInMonth(date: Date): Date[]
+    + handleDateClick(date: Date): void
+    + prevMonth(): void
+    + nextMonth(): void
+  }
+
+  class "qiita.ts" as QiitaUtils {
+    + buildQuery(params: {org: string, raw: string}): string
+    + fetchQiitaItems(input: {query: string, page: number, perPage: number}): Promise<{items: QiitaItem[], rate: RateLimitInfo | null}>
+    + fetchAllItemsInPeriod(input: {org: string, startDate: string, endDate: string}): Promise<{items: QiitaItem[], rate: RateLimitInfo | null}>
+    - parseRate(res: Response): RateLimitInfo | null
+  }
+
+  class QiitaItem {
+    + id: string
+    + title: string
+    + url: string
+    + likes_count: number
+    + created_at: string
+    + rendered_body?: string
+    + user: QiitaUser
+    + tags: QiitaTag[]
+  }
+
+  class QiitaUser {
+    + id: string
+    + name?: string
+  }
+
+  class QiitaTag {
+    + name: string
+  }
+
+  class RateLimitInfo {
+    + limit: number
+    + remaining: number
+    + reset: number
+  }
+}
+
+package "バックエンド (プロキシ)" {
+  class "Vercel Serverless Function" as VercelProxy {
+    + handler(req: VercelRequest, res: VercelResponse): Promise<void>
+    - getPathFromUrl(url: string): string
+    - buildTargetUrl(path: string, queryParams: Record<string, string>): string
+    - addAuthHeader(headers: Record<string, string>): void
+    - copyRateLimitHeaders(response: Response, res: VercelResponse): void
+  }
+
+  class "Express Proxy Server" as ExpressProxy {
+    + app: Express
+    + PORT: number
+    + setupProxy(): void
+    + onProxyReq(proxyReq, req, res): void
+    + onProxyRes(proxyRes, req, res): void
+  }
+}
+
+package "外部API" {
+  class "Qiita API v2" as QiitaAPI {
+    + GET /api/v2/items
+    + Rate-Limit header
+    + Rate-Remaining header
+    + Rate-Reset header
+  }
+}
+
+App --> QiitaUtils : uses
+App --> DatePicker : uses
+App --> QiitaItem : contains
+QiitaUtils --> QiitaItem : returns
+QiitaUtils --> RateLimitInfo : returns
+QiitaItem --> QiitaUser : contains
+QiitaItem --> QiitaTag : contains
+QiitaUtils --> VercelProxy : calls (本番)
+QiitaUtils --> ExpressProxy : calls (開発)
+VercelProxy --> QiitaAPI : proxies
+ExpressProxy --> QiitaAPI : proxies
+
+@enduml
